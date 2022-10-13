@@ -1,0 +1,325 @@
+The approach I took was modeled after the approach taken in MessAdmin's multithreaded compression code. I had a similar division of 
+duties in classes, for example a block class keeping track of a blocks uncompressed and compressed data. I also modeled my main driving/
+organization thread around the TA's hint code but the rest of the implementation is my own. Some observations I had while in development is 
+that the use of the data structure in the controlling thread to organize blocks is important as there are some datastucutures which 
+are not concurrency safe. Becuase of this I used BlockingQueue which is built into the java library in order to protect operations 
+on the queue. A difficulty I had in development was getting the threads to terminate after being assigned tasks by the controlling 
+object (threadpoolexecutor). I kept outputting only one compressed block becuase of this issue which I eventually fixed by forcing a 
+wait on still executing threads. 
+
+Measurements: *Note: values below are average of three trials* 
+
+time gzip <$input >gzip.gz
+real-0m7.640s
+user-0m7.123s
+sys	0m0.070s
+
+time pigz <$input >pigz.gz
+real-0m2.289s
+user-0m7.078s
+sys	0m0.039s
+
+time java Pigzj <$input >Pigzj.gz
+real-0m2.739s
+user-0m7.439s
+sys	0m0.417s
+
+time ./pigzj <$input >pigzj.gz
+real-0m4.179s
+user-0m7.380s
+sys	0m0.561s
+
+Results of compression speeds using default # of threads: 
+The speed of all multithreaded compression programs is faster than the single threaded gzip version 
+
+
+Testing of compression accuracy:
+
+ls -l gzip.gz pigz.gz Pigzj.gz pigzj.gz
+-rw-r--r-- 1 emmett csugrad 43352861 May  8 22:48 Pigzj.gz
+-rw-r--r-- 1 emmett csugrad 43476941 May  8 22:48 gzip.gz
+-rw-r--r-- 1 emmett csugrad 43351345 May  8 22:48 pigz.gz
+-rw-r--r-- 1 emmett csugrad 43352861 May  8 22:48 pigzj.gz
+
+[emmett@lnxsrv11 ~]$ gzip -d <Pigzj.gz | cmp - $input
+[emmett@lnxsrv11 ~]$ gzip -d <pigzj.gz | cmp - $input
+
+Results:
+No output means the compression works, preserving data validity and the gzip data format. While the compressed files have a different # of bytes,
+this is due to there being multiple valid compressions of the same input so when unziped and compared, they all produce the same output.
+
+
+With different values other than the default: *Note: below values are average of three trials*  
+
+time pigz -p 1 <$input >pigz.gz
+real-0m7.793s
+user-0m6.949s
+sys	0m0.067s
+
+time pigz -p 10 <$input >pigz.gz
+real-0m2.761s
+user-0m7.081s
+sys	0m0.052s
+
+time pigz -p 50 <$input >pigz.gz
+real-0m2.623s
+user-0m7.102s
+sys	0m0.109s
+
+__________________________
+time java Pigzj -p 1 <$input >Pigzj.gz
+real-0m7.773s
+user-0m7.345s
+sys	0m0.412s
+
+time java Pigzj -p 10 <$input >Pigzj.gz
+real-0m4.286s
+user-0m7.479s
+sys	0m0.412s
+
+time java Pigzj -p 50 <$input >Pigzj.gz
+real-0m3.183s
+user-0m7.472s
+sys	0m0.353s
+
+_______________________
+time ./pigzj -p 1 <$input >pigzj.gz
+real-0m7.837s
+user-0m7.331s
+sys	0m0.605s
+
+time ./pigzj -p 10 <$input >pigzj.gz
+real-0m4.392s
+user-0m7.433s
+sys	0m0.527s
+
+time ./pigzj -p 50 <$input >pigzj.gz
+real-0m5.719s
+user-0m7.429s
+sys	0m0.529s
+_______________
+Number of cores on SEASnet srvr 11:
+[emmett@lnxsrv11 ~]$ lscpu
+...
+CPU(s):              4
+On-line CPU(s) list: 0-3
+Thread(s) per core:  1
+Core(s) per socket:  4
+	...
+
+Results of using non-default # of compression threads:
+For my implementaion, the native-image executable version of my implementation and the pigz implementation, all three have comparable resules when using 
+one compression thread (~= 7.8 ms). This makes sense as with only one thread doing work so it should fall in the same ballpark as the gzip compression 
+speed which it does (gzip was timed at 7.640ms). When the number of threads increases from one to 10 the compression speed increases by around 
+2x. When the # of threads increases from 10 to 50, the results are the same, this is due to there being under 10 cores avaliable on SEASnet 
+so there is no greater benifit when using more threads than the number of avaliable cores as these extra threads cannot run in parallel. 
+
+
+
+Configuration for reproduciton of testing: 
+[emmett@lnxsrv11 ~]$ lscpu
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+CPU(s):              4
+On-line CPU(s) list: 0-3
+Thread(s) per core:  1
+Core(s) per socket:  4
+Socket(s):           1
+NUMA node(s):        1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               85
+Model name:          Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz
+Stepping:            4
+CPU MHz:             2095.079
+BogoMIPS:            4190.15
+Hypervisor vendor:   Microsoft
+Virtualization type: full
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            1024K
+L3 cache:            16896K
+NUMA node0 CPU(s):   0-3
+Flags:               fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology cpuid pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch invpcid_single pti ibrs ibpb stibp fsgsbase bmi1 hle avx2 smep bmi2 erms invpcid rtm mpx avx512f avx512dq rdseed adx smap clflushopt avx512cd avx512bw avx512vl xsaveopt xsavec xsaves
+
+
+Resources for generating pigzj executable: 
+[emmett@lnxsrv11 ~]$ time native-image Pigzj 
+========================================================================================================================
+GraalVM Native Image: Generating 'pigzj'...
+========================================================================================================================
+[1/7] Initializing...                                                                                    (8.5s @ 0.20GB)
+ Version info: 'GraalVM 22.0.0.2 Java 17 CE'
+[2/7] Performing analysis...  [*******]                                                                 (29.1s @ 0.61GB)
+   2,732 (83.80%) of  3,260 classes reachable
+   3,364 (60.44%) of  5,566 fields reachable
+  12,387 (73.10%) of 16,945 methods reachable
+      28 classes,     0 fields, and   173 methods registered for reflection
+      57 classes,    58 fields, and    51 methods registered for JNI access
+[3/7] Building universe...                                                                               (1.0s @ 0.79GB)
+[4/7] Parsing methods...      [*]                                                                        (1.2s @ 1.03GB)
+[5/7] Inlining methods...     [****]                                                                     (1.8s @ 0.98GB)
+[6/7] Compiling methods...    [***]                                                                     (11.2s @ 0.83GB)
+[7/7] Creating image...                                                                                  (1.7s @ 1.12GB)
+   4.01MB (33.46%) for code area:    7,419 compilation units
+   6.92MB (57.76%) for image heap:   1,642 classes and 90,961 objects
+   1.05MB ( 8.78%) for other data
+  11.98MB in total
+------------------------------------------------------------------------------------------------------------------------
+Top 10 packages in code area:                               Top 10 object types in image heap:
+ 635.83KB java.util                                            1.77MB byte[] for general heap data
+ 300.87KB java.lang                                          792.81KB java.lang.String
+ 283.85KB java.text                                          588.11KB java.lang.Class
+ 233.44KB java.util.regex                                    488.01KB byte[] for java.lang.String
+ 193.17KB com.oracle.svm.jni                                 418.97KB java.util.HashMap$Node
+ 181.51KB java.util.concurrent                               220.47KB java.util.HashMap$Node[]
+ 144.41KB java.math                                          154.31KB java.util.concurrent.ConcurrentHashMap$Node
+ 125.01KB com.oracle.svm.core.reflect                        147.53KB java.lang.String[]
+  94.35KB java.util.logging                                  143.73KB char[]
+  91.34KB sun.util.locale.provider                           139.78KB sun.util.locale.LocaleObjectCache$CacheEntry
+      ... 120 additional packages                                 ... 768 additional object types
+                                           (use GraalVM Dashboard to see all)
+------------------------------------------------------------------------------------------------------------------------
+                        2.4s (4.3% of total time) in 17 GCs | Peak RSS: 2.56GB | CPU load: 2.42
+------------------------------------------------------------------------------------------------------------------------
+Produced artifacts:
+ /w/home.18/cs/ugrad/emmett/pigzj (executable)
+ /w/home.18/cs/ugrad/emmett/pigzj.build_artifacts.txt
+========================================================================================================================
+Finished generating 'pigzj' in 55.8s.
+
+real	0m56.619s
+user	2m14.336s
+sys	0m2.977s
+
+Resorces for creating Pigzj:
+[emmett@lnxsrv11 ~]$ time javac Pigzj.java 
+
+real	0m1.095s
+user	0m1.655s
+sys	0m0.148s
+
+Obervations: 
+Creating the executable uses a huge amount more resources for a less portable and comparable in compression speed program. It is therefore
+much better to not generate the executable using native-image in this case where the program is small and the increase in speed of  
+interpreting byte code is negligable compared to the faster instructions of pure machine dependent code in the executable. 
+
+
+Strace Results for running: 
+
+[emmett@lnxsrv11 ~]$ strace -C  gzip <$input >gzip.gz
+...
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 59.69    0.007891        1972         4           close
+ 34.88    0.004611          27       166           write
+  5.42    0.000717           0      3872           read
+  0.00    0.000000           0         3           fstat
+  0.00    0.000000           0         1           lseek
+  0.00    0.000000           0         6           mmap
+  0.00    0.000000           0         4           mprotect
+  0.00    0.000000           0         1           munmap
+  0.00    0.000000           0         1           brk
+  0.00    0.000000           0        12           rt_sigaction
+  0.00    0.000000           0         1         1 ioctl
+  0.00    0.000000           0         1         1 access
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         2           openat
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.013219           3      4077         3 total
+
+[emmett@lnxsrv11 ~]$ strace -C pigz <$input >pigz.gz
+...
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 59.39    0.013499          21       627         1 futex
+ 40.60    0.009229           9       978           read
+  0.00    0.000001           0        21           munmap
+  0.00    0.000000           0         6           close
+  0.00    0.000000           0         6           fstat
+  0.00    0.000000           0         3           lseek
+  0.00    0.000000           0        28           mmap
+  0.00    0.000000           0        15           mprotect
+  0.00    0.000000           0         8           brk
+  0.00    0.000000           0         3           rt_sigaction
+  0.00    0.000000           0         1           rt_sigprocmask
+  0.00    0.000000           0         2         2 ioctl
+  0.00    0.000000           0         1         1 access
+  0.00    0.000000           0         5           clone
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0         6           openat
+  0.00    0.000000           0         1           set_robust_list
+  0.00    0.000000           0         1           prlimit64
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.022729          13      1716         5 total
+
+[emmett@lnxsrv11 ~]$ strace -C java Pigzj <$input >Pigzj.gz
+...
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 99.82    0.378463      189231         2           futex
+  0.07    0.000264           4        56        45 openat
+  0.03    0.000109           4        25           mmap
+  0.03    0.000106           6        17           mprotect
+  0.02    0.000087           2        39        36 stat
+  0.01    0.000032           2        13           read
+  0.01    0.000024          12         2           munmap
+  0.01    0.000022           2        11           fstat
+  0.00    0.000018           1        11           close
+  0.00    0.000012          12         1           clone
+  0.00    0.000006           2         3           lseek
+  0.00    0.000002           1         2           rt_sigaction
+  0.00    0.000002           1         2           getpid
+  0.00    0.000002           1         2         1 arch_prctl
+  0.00    0.000002           2         1           set_tid_address
+  0.00    0.000002           2         1           set_robust_list
+  0.00    0.000000           0         4           brk
+  0.00    0.000000           0         1           rt_sigprocmask
+  0.00    0.000000           0         2         1 access
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2           readlink
+  0.00    0.000000           0         1           prlimit64
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.379153        1905       199        83 total
+
+[emmett@lnxsrv11 ~]$ strace -C ./pigzj <$input >pigzj.gz
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 32.15    0.069045          68      1009           read
+ 19.79    0.042509          20      2039           mmap
+ 16.04    0.034446         485        71           futex
+ 10.40    0.022341       22341         1           write
+  8.35    0.017926          17      1052           brk
+  7.35    0.015786          16       953           munmap
+  5.17    0.011094          11      1004           fstat
+  0.68    0.001468           1      1011        12 lseek
+  0.03    0.000073          73         1           sched_yield
+  0.03    0.000054          13         4           clone
+  0.01    0.000014           1        10           nanosleep
+  0.00    0.000010           0        17           mprotect
+  0.00    0.000000           0        22           close
+  0.00    0.000000           0         6           rt_sigaction
+  0.00    0.000000           0         2           rt_sigprocmask
+  0.00    0.000000           0         1         1 access
+  0.00    0.000000           0         3           socket
+  0.00    0.000000           0         1         1 getsockname
+  0.00    0.000000           0         1           setsockopt
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         3           sched_getaffinity
+  0.00    0.000000           0         2           getdents64
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0        20           openat
+  0.00    0.000000           0         1           set_robust_list
+  0.00    0.000000           0         6           prlimit64
+------ ----------- ----------- --------- --------- ------------------
+100.00    0.214766          29      7244        15 total
+
+Observations of strace: 
+Both the executable generated by native-image and gzip make significantly more system calls than Pigzj which is run in JVM (4000+ compared to 200). This 
+is likely one of the reasons for a comparable time of execution when the binary should execute faster than the byte code (the multithreaded
+binary). The calls made by the the program run in the JVM has significantly more expensive calls (1905 compared to 13, 3, and 9 of the others).
